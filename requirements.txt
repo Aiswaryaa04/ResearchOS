@@ -3,3 +3,5 @@ sqlalchemy
 psycopg2-binary
 requests
 pydantic
+google-genai
+pgvector
