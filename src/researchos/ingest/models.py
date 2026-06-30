@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Integer, Boolean, Text, DateTime, JSON
+from sqlalchemy import Column, String, Integer, Boolean, Text, DateTime, JSON, Float
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
 
@@ -22,6 +22,7 @@ class Paper(Base):
     raw_metadata = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     embedding = Column(Vector(3072), nullable=True)
+
     main_claim = Column(Text, nullable=True)
     methodology = Column(String(50), nullable=True)
     sample_size = Column(Integer, nullable=True)
@@ -31,3 +32,7 @@ class Paper(Base):
     direction = Column(String(20), nullable=True)
     outcome = Column(Text, nullable=True)
     extraction_done = Column(Boolean, default=False)
+
+    evidence_score = Column(Float, nullable=True)
+    evidence_tier = Column(String(20), nullable=True)
+    scoring_done = Column(Boolean, default=False)
