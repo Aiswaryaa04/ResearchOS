@@ -9,3 +9,7 @@ anthropic
 neo4j
 streamlit
 plotly
+fastapi
+uvicorn
+redis
+rq

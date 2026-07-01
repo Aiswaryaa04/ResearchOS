@@ -167,8 +167,13 @@ if st.session_state.stage == "landing":
 # PROCESSING PAGE
 # ══════════════════════════════════════════════════════════════════════════════
 if st.session_state.stage == "processing":
+    import time
+    import requests as http_requests
+
     topic = st.session_state.topic
     top_k = st.session_state.get("top_k", 10)
+
+    BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
     st.markdown(f"""
     <div class="hero">
@@ -179,34 +184,69 @@ if st.session_state.stage == "processing":
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        status = st.empty()
+        status_box = st.empty()
         progress = st.progress(0)
 
-        status.markdown("**Step 1/4 — Fetching papers from Semantic Scholar, PubMed, arXiv...**")
-        progress.progress(5)
-        ingest(topic, limit=top_k)
-        progress.progress(25)
+        # start the job if we haven't yet
+        if "job_id" not in st.session_state:
+            try:
+                resp = http_requests.post(
+                    f"{BACKEND_URL}/ingest",
+                    json={"topic": topic, "limit": top_k},
+                    timeout=10,
+                )
+                st.session_state.job_id = resp.json()["job_id"]
+            except Exception as e:
+                st.error(f"Could not connect to backend: {e}")
+                st.stop()
 
-        status.markdown("**Step 2/4 — Extracting claims with Claude AI...**")
-        run_extraction()
-        progress.progress(50)
+        # poll for status
+        step_progress = {
+            "starting": 5,
+            "ingesting": 20,
+            "extracting": 50,
+            "scoring": 70,
+            "embedding": 85,
+            "complete": 100,
+        }
+        step_labels = {
+            "starting": "Starting pipeline...",
+            "ingesting": "📡 Fetching papers from Semantic Scholar, PubMed, arXiv...",
+            "extracting": "🧠 Extracting claims with Claude AI...",
+            "scoring": "⚖️ Scoring evidence quality...",
+            "embedding": "🔢 Building semantic embeddings...",
+            "complete": "✅ Done! Loading results...",
+        }
 
-        status.markdown("**Step 3/4 — Scoring evidence quality...**")
-        run_scoring()
-        progress.progress(65)
+        try:
+            resp = http_requests.get(
+                f"{BACKEND_URL}/status/{st.session_state.job_id}",
+                timeout=5,
+            )
+            job = resp.json()
+            step = job.get("step", "starting")
+            job_status = job.get("status", "running")
 
-        status.markdown("**Step 4/4 — Building semantic embeddings...**")
-        embed_all_papers()
-        progress.progress(90)
+            progress.progress(step_progress.get(step, 5))
+            status_box.markdown(f"**{step_labels.get(step, 'Processing...')}**")
 
-        status.markdown("**✅ Done! Loading results...**")
-        progress.progress(100)
+            if job_status == "done":
+                del st.session_state.job_id
+                st.session_state.query = f"what does the research say about {topic}?"
+                st.session_state.results = []
+                st.session_state.stage = "results"
+                st.rerun()
+            elif job_status == "error":
+                st.error(f"Pipeline failed: {job.get('error')}")
+                del st.session_state.job_id
+                st.session_state.stage = "landing"
+            else:
+                time.sleep(3)
+                st.rerun()
 
-        st.session_state.pipeline_done = True
-        st.session_state.query = f"what does the research say about {topic}?"
-        st.session_state.results = []
-        st.session_state.stage = "results"
-        st.rerun()
+        except Exception as e:
+            st.error(f"Backend connection error: {e}")
+            st.stop()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # RESULTS PAGE
