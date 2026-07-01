@@ -222,7 +222,7 @@ if st.session_state.stage == "processing":
         try:
             resp = http_requests.get(
                 f"{BACKEND_URL}/status/{st.session_state.job_id}",
-                timeout=5,
+                timeout=30,
             )
             job = resp.json()
             step = job.get("step", "starting")
@@ -319,11 +319,13 @@ if st.session_state.stage == "results":
         </div>
         """, unsafe_allow_html=True)
 
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📄 Papers & Claims",
         "📈 Consensus Timeline",
         "🗺️ Research Gaps",
         "⚖️ Evidence Summary",
+        "🔥 Conflict Fingerprints",
+
     ])
 
     # ── TAB 1 ────────────────────────────────────────────────────────────────
@@ -499,3 +501,60 @@ if st.session_state.stage == "results":
             tc1.markdown(f"**{p.title[:80]}{'...' if len(p.title) > 80 else ''}**")
             tc2.markdown(f"Score: **{p.evidence_score:.1f}**")
             tc3.markdown(f"{(p.methodology or 'other').replace('_', ' ').title()}")
+
+# ── TAB 5: Conflict Fingerprints ─────────────────────────────────────────
+    with tab5:
+        st.markdown('<div class="section-header">Why do papers disagree?</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-sub">Contradictions diagnosed across 4 dimensions: methodology gap, population difference, funding bias, and temporal shift.</div>', unsafe_allow_html=True)
+
+        try:
+            from researchos.graph.query_graph import get_contradictions
+            contradictions = get_contradictions(min_dimensions=2)
+
+            if not contradictions:
+                contradictions = get_contradictions(min_dimensions=1)
+
+            if not contradictions:
+                st.info("No contradictions detected yet. Run more topics to build the graph.")
+            else:
+                st.metric("Total contradictions detected", len(contradictions))
+                st.markdown("---")
+
+                # show top 20 most interesting
+                for i, c in enumerate(contradictions[:20], 1):
+                    dims = c.get("dimension_count", 0)
+                    color = "🔴" if dims >= 3 else "🟠" if dims >= 2 else "🟡"
+
+                    with st.expander(f"{color} Contradiction #{i} — {dims} dimension(s) — {c.get('year_a')} vs {c.get('year_b')}"):
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            st.markdown(f"**Paper A ({c.get('year_a')})**")
+                            st.markdown(f"*{c.get('paper_a', 'Unknown')}*")
+                            st.markdown(f"Method: `{c.get('method_a')}` | Score: `{c.get('score_a')}`")
+
+                        with col2:
+                            st.markdown(f"**Paper B ({c.get('year_b')})**")
+                            st.markdown(f"*{c.get('paper_b', 'Unknown')}*")
+                            st.markdown(f"Method: `{c.get('method_b')}` | Score: `{c.get('score_b')}`")
+
+                        st.markdown("**Why they disagree:**")
+                        for reason in (c.get("reasons") or []):
+                            st.markdown(f"- {reason}")
+
+                        dims_active = []
+                        if c.get("methodology_gap"):
+                            dims_active.append("⚗️ Methodology gap")
+                        if c.get("population_difference"):
+                            dims_active.append("👥 Population difference")
+                        if c.get("funding_bias"):
+                            dims_active.append("💰 Funding bias")
+                        if c.get("temporal_shift"):
+                            dims_active.append("📅 Temporal shift")
+
+                        if dims_active:
+                            st.markdown("**Active dimensions:** " + " | ".join(dims_active))
+
+        except Exception as e:
+            st.warning(f"Knowledge graph not available: {e}")
+            st.info("The conflict fingerprinting engine requires Neo4j to be connected.")
