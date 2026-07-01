@@ -9,11 +9,18 @@ load_dotenv()
 ESEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 
+def _get_env(key: str) -> str:
+    try:
+        import streamlit as st
+        if key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return os.environ.get(key, "")
 
 def _get_params(extra: dict) -> dict:
-    """Base params included in every NCBI request."""
     params = {
-        "api_key": os.environ.get("NCBI_API_KEY", ""),
+        "api_key": _get_env("NCBI_API_KEY"),
         "tool": "researchos",
         "email": "avelu3@uic.edu",
     }

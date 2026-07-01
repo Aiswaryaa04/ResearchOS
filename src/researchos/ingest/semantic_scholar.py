@@ -8,7 +8,7 @@ FIELDS = "title,abstract,year,venue,externalIds,authors,publicationTypes"
 
 def search_papers(query: str, limit: int = 20, max_retries: int = 5) -> list[dict]:
     headers = {}
-    api_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
+    api_key = _get_env("SEMANTIC_SCHOLAR_API_KEY")
     if api_key:
         headers["x-api-key"] = api_key
 
@@ -40,3 +40,12 @@ if __name__ == "__main__":
     print(f"Got {len(results)} papers")
     for paper in results:
         print("-", paper.get("title"), "(", paper.get("year"), ")")
+
+def _get_env(key: str) -> str:
+    try:
+        import streamlit as st
+        if key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return os.environ.get(key, "")

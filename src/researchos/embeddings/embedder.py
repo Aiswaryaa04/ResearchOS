@@ -8,7 +8,7 @@ load_dotenv()
 EMBEDDING_MODEL = "models/gemini-embedding-001"
 EMBEDDING_DIM = 3072  
 
-client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+client = genai.Client(api_key=_get_env("GEMINI_API_KEY"))
 
 
 def embed_text(text: str) -> list[float]:
