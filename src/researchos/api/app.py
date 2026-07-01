@@ -193,12 +193,13 @@ if st.session_state.stage == "processing":
                 resp = http_requests.post(
                     f"{BACKEND_URL}/ingest",
                     json={"topic": topic, "limit": top_k},
-                    timeout=10,
+                    timeout=60,
                 )
                 st.session_state.job_id = resp.json()["job_id"]
             except Exception as e:
-                st.error(f"Could not connect to backend: {e}")
-                st.stop()
+                st.warning("⏳ Backend is waking up (this takes ~50 seconds on free tier). Please click 'Research this topic' again.")
+                st.session_state.stage = "landing"
+                st.rerun()
 
         # poll for status
         step_progress = {
