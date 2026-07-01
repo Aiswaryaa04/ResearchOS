@@ -144,7 +144,7 @@ if st.session_state.stage == "landing":
     c1.metric("📄 Papers indexed", f"{total_papers:,}")
     c2.metric("🧠 Claims extracted", f"{extracted:,}")
     c3.metric("📡 Data sources", "3")
-    c4.metric("🔬 Topics covered", "Any biomedical topic")
+    c4.metric("🔬 Topics covered", "Any topic")
 
     st.markdown("---")
     st.markdown("### What ResearchOS does differently")
