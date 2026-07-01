@@ -1,4 +1,5 @@
 import sys
+import time
 
 from researchos.db import SessionLocal
 from researchos.ingest.models import Paper
@@ -48,7 +49,7 @@ def parse_arxiv_paper(raw: dict) -> dict:
         "abstract": raw.get("abstract"),
         "year": raw.get("year"),
         "venue": raw.get("venue"),
-        "is_preprint": True,  # arXiv is a preprint server by definition
+        "is_preprint": True,
         "authors": raw.get("authors") or [],
         "raw_metadata": raw,
     }
@@ -73,10 +74,51 @@ def save_papers(session, papers: list[dict]):
     return inserted, skipped
 
 
-def ingest(query: str, limit: int = 20):
+def expand_queries(query: str) -> list[str]:
+    """
+    Generate multiple related search queries from a base query
+    to increase paper coverage toward 500+.
+    """
+    words = query.strip().split()
+    queries = [query]
+
+    # add variations with fewer words for broader coverage
+    if len(words) >= 3:
+        queries.append(" ".join(words[:2]))
+        queries.append(" ".join(words[1:]))
+
+    # add common medical research suffixes
+    base = words[0] if words else query
+    queries.extend([
+        f"{base} clinical trial",
+        f"{base} meta-analysis",
+        f"{base} systematic review",
+        f"{base} cohort study",
+        f"{base} randomized controlled trial",
+    ])
+
+    # deduplicate while preserving order
+    seen = set()
+    unique = []
+    for q in queries:
+        if q not in seen:
+            seen.add(q)
+            unique.append(q)
+
+    return unique
+
+
+def ingest(query: str, limit: int = 20, scale: bool = False):
+    """
+    Ingest papers for a topic.
+    If scale=True, runs multiple query variations to reach 500+ papers.
+    """
     session = SessionLocal()
     total_inserted = 0
     total_skipped = 0
+
+    queries = expand_queries(query) if scale else [query]
+    per_query_limit = 100 if scale else limit
 
     sources = [
         ("Semantic Scholar", s2_search, parse_s2_paper),
@@ -84,22 +126,31 @@ def ingest(query: str, limit: int = 20):
         ("arXiv", arxiv_search, parse_arxiv_paper),
     ]
 
-    for name, search_fn, parse_fn in sources:
-        print(f"\nFetching from {name}...")
-        try:
-            raw_papers = search_fn(query, limit=limit)
-            parsed = [parse_fn(r) for r in raw_papers]
-            inserted, skipped = save_papers(session, parsed)
-            print(f"{name}: {inserted} inserted, {skipped} skipped")
-            total_inserted += inserted
-            total_skipped += skipped
-        except Exception as e:
-            print(f"{name}: FAILED — {e}")
+    for q in queries:
+        print(f"\nQuery: '{q}'")
+        for name, search_fn, parse_fn in sources:
+            try:
+                raw_papers = search_fn(q, limit=per_query_limit)
+                parsed = [parse_fn(r) for r in raw_papers]
+                inserted, skipped = save_papers(session, parsed)
+                print(f"  {name}: {inserted} inserted, {skipped} skipped")
+                total_inserted += inserted
+                total_skipped += skipped
+                time.sleep(0.5)  # be polite between sources
+            except Exception as e:
+                print(f"  {name}: FAILED — {e}")
 
     session.close()
     print(f"\nTotal inserted: {total_inserted}, Total skipped: {total_skipped}")
 
+    # show current total
+    session = SessionLocal()
+    total = session.query(Paper).count()
+    session.close()
+    print(f"Total papers in database: {total}")
+
 
 if __name__ == "__main__":
     query = sys.argv[1] if len(sys.argv) > 1 else "metformin cancer risk"
-    ingest(query, limit=20)
+    scale = "--scale" in sys.argv
+    ingest(query, scale=scale)

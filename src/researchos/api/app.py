@@ -206,16 +206,20 @@ if st.session_state.stage == "processing":
             "starting": 5,
             "ingesting": 20,
             "extracting": 50,
+            "crossref": 55,
             "scoring": 70,
             "embedding": 85,
+            "graph": 92,
             "complete": 100,
         }
         step_labels = {
             "starting": "Starting pipeline...",
             "ingesting": "📡 Fetching papers from Semantic Scholar, PubMed, arXiv...",
             "extracting": "🧠 Extracting claims with Claude AI...",
+            "crossref": "💰 Enriching funding metadata via CrossRef...",
             "scoring": "⚖️ Scoring evidence quality...",
             "embedding": "🔢 Building semantic embeddings...",
+            "graph": "🕸️ Building knowledge graph and fingerprinting contradictions...",
             "complete": "✅ Done! Loading results...",
         }
 
