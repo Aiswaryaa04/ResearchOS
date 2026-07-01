@@ -5,7 +5,7 @@ import os
 import threading
 from collections import defaultdict, Counter
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../..","src"))
 
 from researchos.ingest.run_ingest import ingest
 from researchos.extraction.run_extraction import run_extraction
