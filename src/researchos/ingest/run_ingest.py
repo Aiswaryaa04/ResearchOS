@@ -54,11 +54,14 @@ def parse_arxiv_paper(raw: dict) -> dict:
         "raw_metadata": raw,
     }
 
-
 def save_papers(session, papers: list[dict]):
     inserted = 0
     skipped = 0
     for fields in papers:
+        # skip papers with no abstract and no title — nothing to work with
+        if not fields.get("abstract") and not fields.get("title"):
+            skipped += 1
+            continue
         exists = (
             session.query(Paper)
             .filter_by(source=fields["source"], external_id=fields["external_id"])
@@ -73,21 +76,14 @@ def save_papers(session, papers: list[dict]):
     session.commit()
     return inserted, skipped
 
-
 def expand_queries(query: str) -> list[str]:
-    """
-    Generate multiple related search queries from a base query
-    to increase paper coverage toward 500+.
-    """
     words = query.strip().split()
     queries = [query]
 
-    # add variations with fewer words for broader coverage
     if len(words) >= 3:
         queries.append(" ".join(words[:2]))
         queries.append(" ".join(words[1:]))
 
-    # add common medical research suffixes
     base = words[0] if words else query
     queries.extend([
         f"{base} clinical trial",
@@ -97,7 +93,6 @@ def expand_queries(query: str) -> list[str]:
         f"{base} randomized controlled trial",
     ])
 
-    # deduplicate while preserving order
     seen = set()
     unique = []
     for q in queries:
@@ -109,10 +104,6 @@ def expand_queries(query: str) -> list[str]:
 
 
 def ingest(query: str, limit: int = 20, scale: bool = False):
-    """
-    Ingest papers for a topic.
-    If scale=True, runs multiple query variations to reach 500+ papers.
-    """
     session = SessionLocal()
     total_inserted = 0
     total_skipped = 0
@@ -129,6 +120,9 @@ def ingest(query: str, limit: int = 20, scale: bool = False):
     for q in queries:
         print(f"\nQuery: '{q}'")
         for name, search_fn, parse_fn in sources:
+            # arXiv needs longer gaps to avoid rate limiting
+            if name == "arXiv" and scale:
+                time.sleep(20)
             try:
                 raw_papers = search_fn(q, limit=per_query_limit)
                 parsed = [parse_fn(r) for r in raw_papers]
@@ -136,14 +130,14 @@ def ingest(query: str, limit: int = 20, scale: bool = False):
                 print(f"  {name}: {inserted} inserted, {skipped} skipped")
                 total_inserted += inserted
                 total_skipped += skipped
-                time.sleep(0.5)  # be polite between sources
+                time.sleep(1)
             except Exception as e:
                 print(f"  {name}: FAILED — {e}")
+                continue
 
     session.close()
     print(f"\nTotal inserted: {total_inserted}, Total skipped: {total_skipped}")
 
-    # show current total
     session = SessionLocal()
     total = session.query(Paper).count()
     session.close()

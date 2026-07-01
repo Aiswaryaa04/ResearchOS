@@ -3,15 +3,12 @@ import requests
 import xml.etree.ElementTree as ET
 
 ARXIV_URL = "http://export.arxiv.org/api/query"
-
-# XML namespace used throughout arXiv's Atom feed
 ATOM = "{http://www.w3.org/2005/Atom}"
 ARXIV_NS = "{http://arxiv.org/schemas/atom}"
 
 
-def search_papers(query: str, limit: int = 20) -> list[dict]:
+def search_papers(query: str, limit: int = 20, max_retries: int = 3) -> list[dict]:
     """Search arXiv and return parsed paper dicts."""
-    # arXiv title search: space-separated terms, no AND keyword needed
     words = query.strip().split()
     search_query = " ".join(f"ti:{w}" for w in words)
 
@@ -23,22 +20,45 @@ def search_papers(query: str, limit: int = 20) -> list[dict]:
         "sortOrder": "descending",
     }
 
-    response = requests.get(ARXIV_URL, params=params)
-    response.raise_for_status()
+    wait = 15
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(ARXIV_URL, params=params, timeout=30)
 
-    root = ET.fromstring(response.text)
-    papers = []
+            if response.status_code in (429, 503):
+                print(f"  arXiv rate limited (attempt {attempt+1}/{max_retries}), waiting {wait}s...")
+                time.sleep(wait)
+                wait *= 2
+                continue
 
-    for entry in root.findall(f"{ATOM}entry"):
-        parsed = _parse_entry(entry)
-        if parsed:
-            papers.append(parsed)
+            response.raise_for_status()
+            root = ET.fromstring(response.text)
+            papers = []
 
-    return papers
+            for entry in root.findall(f"{ATOM}entry"):
+                parsed = _parse_entry(entry)
+                if parsed:
+                    papers.append(parsed)
+
+            return papers
+
+        except requests.exceptions.Timeout:
+            print(f"  arXiv timeout (attempt {attempt+1}/{max_retries}), waiting {wait}s...")
+            time.sleep(wait)
+            wait *= 2
+            continue
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"  arXiv error: {e}, retrying in {wait}s...")
+                time.sleep(wait)
+                wait *= 2
+            else:
+                raise
+
+    raise RuntimeError("arXiv API: exceeded max retries")
+
 
 def _parse_entry(entry) -> dict | None:
-    """Parse a single arXiv Atom entry into our standard dict shape."""
-
     def find_text(tag):
         el = entry.find(f"{ATOM}{tag}")
         return el.text.strip() if el is not None and el.text else None
@@ -47,31 +67,25 @@ def _parse_entry(entry) -> dict | None:
     if not title:
         return None
 
-    # arXiv ID lives in the <id> tag as a URL, e.g.
-    # http://arxiv.org/abs/2301.12345v1 — we extract just the ID part
     raw_id = find_text("id") or ""
     arxiv_id = raw_id.split("/abs/")[-1] if "/abs/" in raw_id else raw_id
 
     abstract = find_text("summary")
 
-    # published date looks like "2023-01-30T00:00:00Z"
     published = find_text("published") or ""
     year = int(published[:4]) if len(published) >= 4 else None
 
-    # authors
     authors = [
         (a.find(f"{ATOM}name").text or "").strip()
         for a in entry.findall(f"{ATOM}author")
         if a.find(f"{ATOM}name") is not None
     ]
 
-    # DOI — arXiv sometimes includes one if the paper was also published
     doi = None
     doi_el = entry.find(f"{ARXIV_NS}doi")
     if doi_el is not None and doi_el.text:
         doi = doi_el.text.strip()
 
-    # journal ref — if the paper was published somewhere, arXiv lists it
     venue = None
     venue_el = entry.find(f"{ARXIV_NS}journal_ref")
     if venue_el is not None and venue_el.text:

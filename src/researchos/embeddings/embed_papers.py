@@ -4,45 +4,70 @@ from researchos.ingest.models import Paper
 from researchos.embeddings.embedder import embed_text
 
 
-def embed_all_papers(batch_size: int = 10):
-    session = SessionLocal()
-
-    # fetch all papers that don't have an embedding yet
-    papers = session.query(Paper).filter(Paper.embedding == None).all()
-    print(f"Found {len(papers)} papers without embeddings.")
-
-    embedded = 0
-    skipped = 0
-
-    for i, paper in enumerate(papers):
-        # use abstract if available, fall back to title only
-        text = paper.abstract or paper.title
-        if not text:
-            print(f"  Skipping '{paper.title[:60]}' — no text to embed")
-            skipped += 1
-            continue
-
+def embed_single(paper_id: str, text: str) -> tuple[str, list | None]:
+    """Embed a single paper with retry logic."""
+    wait = 5
+    for attempt in range(4):
         try:
             vector = embed_text(text)
-            paper.embedding = vector
-            embedded += 1
-
-            # commit in batches to avoid one large transaction
-            if embedded % batch_size == 0:
-                session.commit()
-                print(f"  Embedded {embedded}/{len(papers)}...")
-
-            # Gemini free tier: 1500 requests/day, ~1 req/sec safe rate
-            time.sleep(0.5)
-
+            return paper_id, vector
         except Exception as e:
-            print(f"  Failed on '{paper.title[:60]}': {e}")
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                print(f"  Rate limited, waiting {wait}s...")
+                time.sleep(wait)
+                wait *= 2
+                continue
+            print(f"  Failed: {e}")
+            return paper_id, None
+    return paper_id, None
+
+
+def embed_all_papers():
+    """
+    Embed paper abstracts sequentially with rate limiting.
+    Gemini free tier: 100 requests/minute → 0.7s delay between requests.
+    """
+    session = SessionLocal()
+    papers = session.query(Paper).filter(Paper.embedding == None).all()
+    paper_data = [
+        (p.id, p.abstract or p.title)
+        for p in papers
+        if (p.abstract or p.title)
+    ]
+    session.close()
+
+    total = len(paper_data)
+    print(f"Found {total} papers without embeddings.")
+
+    if total == 0:
+        return
+
+    done = 0
+    skipped = 0
+
+    for paper_id, text in paper_data:
+        pid, vector = embed_single(paper_id, text)
+
+        if vector is None:
             skipped += 1
+            done += 1
             continue
 
-    session.commit()
-    session.close()
-    print(f"\nDone. Embedded: {embedded}, Skipped: {skipped}")
+        s = SessionLocal()
+        paper = s.query(Paper).filter(Paper.id == paper_id).first()
+        if paper:
+            paper.embedding = vector
+            s.commit()
+        s.close()
+
+        done += 1
+        if done % 50 == 0:
+            print(f"  Progress: {done}/{total} (skipped: {skipped})")
+
+        # stay under 100 requests/minute
+        time.sleep(0.7)
+
+    print(f"\nDone. Embedded: {done - skipped}, Skipped: {skipped}")
 
 
 if __name__ == "__main__":

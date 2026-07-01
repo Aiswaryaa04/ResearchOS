@@ -65,3 +65,27 @@ def print_contradictions(topic: str = None):
 
 if __name__ == "__main__":
     print_contradictions()
+
+def get_citation_stats() -> dict:
+    """Return citation network statistics."""
+    driver = get_driver()
+    with driver.session() as neo4j:
+        result = neo4j.run("""
+            MATCH ()-[r:CITES]->()
+            RETURN count(r) as total_citations
+        """).single()
+        total_citations = result["total_citations"] if result else 0
+
+        most_cited = neo4j.run("""
+            MATCH (a:Paper)-[:CITES]->(b:Paper)
+            RETURN b.title AS title, b.year AS year,
+                   count(a) AS citation_count
+            ORDER BY citation_count DESC
+            LIMIT 5
+        """).data()
+
+    driver.close()
+    return {
+        "total_citations": total_citations,
+        "most_cited": most_cited,
+    }
