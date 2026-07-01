@@ -59,9 +59,10 @@ def start_ingestion(request: TopicRequest):
             embed_all_papers()
 
             jobs[job_id]["step"] = "graph"
-            from researchos.graph.build_graph import build_paper_nodes
+            from researchos.graph.build_graph import build_paper_nodes, build_citation_edges
             from researchos.graph.conflict_fingerprint import build_contradiction_edges
             build_paper_nodes()
+            build_citation_edges()
             build_contradiction_edges()
 
             jobs[job_id]["status"] = "done"
