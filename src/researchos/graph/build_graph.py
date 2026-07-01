@@ -56,18 +56,11 @@ def build_paper_nodes():
 
     driver.close()
 
-
-if __name__ == "__main__":
-    build_paper_nodes()
-
-
 def build_citation_edges():
-    """
-    Build CITES edges in Neo4j using Semantic Scholar citation data.
-    Only papers from Semantic Scholar have citation data available.
-    """
+    """Build CITES edges using Semantic Scholar batch API."""
     import requests
     import time
+    import os
 
     session = SessionLocal()
     papers = (
@@ -76,75 +69,71 @@ def build_citation_edges():
         .filter(Paper.external_id != None)
         .all()
     )
-    paper_ids = [(p.id, p.external_id) for p in papers]
+    paper_map = {p.external_id: p.id for p in papers}
+    s2_ids = list(paper_map.keys())
     session.close()
 
-    print(f"Fetching citations for {len(paper_ids)} Semantic Scholar papers...")
+    print(f"Fetching citations for {len(s2_ids)} Semantic Scholar papers...")
+
+    headers = {}
+    api_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
+    if api_key:
+        headers["x-api-key"] = api_key
 
     driver = get_driver()
     edges_created = 0
-    skipped = 0
 
-    with driver.session() as neo4j:
-        for internal_id, s2_id in paper_ids:
-            try:
-                url = f"https://api.semanticscholar.org/graph/v1/paper/{s2_id}/references"
-                headers = {}
-                api_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
-                if api_key:
-                    headers["x-api-key"] = api_key
+    # process in batches of 100
+    batch_size = 100
+    for i in range(0, len(s2_ids), batch_size):
+        batch = s2_ids[i:i + batch_size]
+        print(f"  Batch {i//batch_size + 1}/{(len(s2_ids) + batch_size - 1)//batch_size}...")
 
-                response = requests.get(
-                    url,
-                    headers=headers,
-                    params={"fields": "paperId", "limit": 50},
-                    timeout=10,
-                )
+        try:
+            resp = requests.post(
+                "https://api.semanticscholar.org/graph/v1/paper/batch",
+                headers=headers,
+                json={"ids": batch},
+                params={"fields": "paperId,references"},
+                timeout=30,
+            )
+            if resp.status_code == 429:
+                print("  Rate limited, waiting 15s...")
+                time.sleep(15)
+                continue
+            resp.raise_for_status()
+            papers_data = resp.json()
 
-                if response.status_code == 429:
-                    print(f"  Rate limited, waiting 10s...")
-                    time.sleep(10)
+        except Exception as e:
+            print(f"  Batch error: {e}")
+            time.sleep(5)
+            continue
+
+        with driver.session() as neo4j:
+            for paper_data in papers_data:
+                if not paper_data:
+                    continue
+                citing_s2_id = paper_data.get("paperId")
+                if not citing_s2_id or citing_s2_id not in paper_map:
                     continue
 
-                if response.status_code != 200:
-                    skipped += 1
-                    continue
-
-                data = response.json()
-                references = data.get("data", [])
-
+                references = paper_data.get("references") or []
                 for ref in references:
-                    cited_paper = ref.get("citedPaper", {})
-                    cited_s2_id = cited_paper.get("paperId")
-                    if not cited_s2_id:
-                        continue
-
-                    # only create edge if cited paper is also in our graph
-                    result = neo4j.run(
-                        "MATCH (b:Paper {external_id: $cited_id}) RETURN b.id LIMIT 1",
-                        {"cited_id": cited_s2_id}
-                    ).single()
-
-                    if result:
+                    cited_s2_id = ref.get("paperId")
+                    if cited_s2_id and cited_s2_id in paper_map:
                         neo4j.run("""
                             MATCH (a:Paper {id: $id_a}), (b:Paper {id: $id_b})
                             MERGE (a)-[:CITES]->(b)
                         """, {
-                            "id_a": internal_id,
-                            "id_b": result["b.id"],
+                            "id_a": paper_map[citing_s2_id],
+                            "id_b": paper_map[cited_s2_id],
                         })
                         edges_created += 1
 
-                time.sleep(1)  # 1 req/sec with API key
-
-            except Exception as e:
-                print(f"  Error for {s2_id}: {e}")
-                skipped += 1
-                continue
+        time.sleep(1)  # 1 req/sec with key
 
     driver.close()
-    print(f"Created {edges_created} CITES edges, skipped {skipped} papers.")
-
+    print(f"Created {edges_created} CITES edges.")
 
 if __name__ == "__main__":
     build_paper_nodes()
