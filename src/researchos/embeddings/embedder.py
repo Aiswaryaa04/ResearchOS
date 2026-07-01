@@ -1,18 +1,30 @@
 import os
-from google import genai
-from google.genai import types
 from dotenv import load_dotenv
 
 load_dotenv()
 
 EMBEDDING_MODEL = "models/gemini-embedding-001"
-EMBEDDING_DIM = 3072  
+EMBEDDING_DIM = 3072
 
-client = genai.Client(api_key=_get_env("GEMINI_API_KEY"))
+
+def _get_env(key: str) -> str:
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return os.environ.get(key, "")
+
+
+def get_client():
+    from google import genai
+    return genai.Client(api_key=_get_env("GEMINI_API_KEY"))
 
 
 def embed_text(text: str) -> list[float]:
-    """Convert a string into a 768-dimensional embedding vector."""
+    from google.genai import types
+    client = get_client()
     response = client.models.embed_content(
         model=EMBEDDING_MODEL,
         contents=text,
@@ -22,7 +34,8 @@ def embed_text(text: str) -> list[float]:
 
 
 def embed_query(query: str) -> list[float]:
-    """Embed a search query (uses RETRIEVAL_QUERY task type for better search results)."""
+    from google.genai import types
+    client = get_client()
     response = client.models.embed_content(
         model=EMBEDDING_MODEL,
         contents=query,
