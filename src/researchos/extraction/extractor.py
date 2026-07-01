@@ -1,11 +1,24 @@
 import os
 import json
-import anthropic
 from dotenv import load_dotenv
 
 load_dotenv()
 
-client = anthropic.Anthropic(api_key=_get_env("ANTHROPIC_API_KEY"))
+
+def _get_env(key: str) -> str:
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return os.environ.get(key, "")
+
+
+def get_client():
+    import anthropic
+    return anthropic.Anthropic(api_key=_get_env("ANTHROPIC_API_KEY"))
+
 
 SYSTEM_PROMPT = """You are a scientific literature analyst. 
 Your job is to extract structured information from paper abstracts.
@@ -30,25 +43,22 @@ JSON response:"""
 
 
 def extract_paper(title: str, abstract: str) -> dict | None:
-    """Send a paper to Claude and get back structured extraction."""
     if not abstract:
         return None
 
     prompt = EXTRACTION_PROMPT.format(title=title, abstract=abstract)
 
     try:
+        client = get_client()
         message = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=1000,
-            messages=[
-                {"role": "user", "content": prompt}
-            ],
+            messages=[{"role": "user", "content": prompt}],
             system=SYSTEM_PROMPT,
         )
 
         raw = message.content[0].text.strip()
 
-        # strip markdown code fences if Claude adds them despite instructions
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
@@ -63,16 +73,3 @@ def extract_paper(title: str, abstract: str) -> dict | None:
     except Exception as e:
         print(f"  API error: {e}")
         return None
-
-
-if __name__ == "__main__":
-    title = "Metformin's role in lowering colorectal cancer risk among individuals with diabetes"
-    abstract = """Background: Metformin, utilized to manage hyperglycemia, has been linked to a 
-    reduced risk of colorectal cancer (CRC) among individuals with diabetes. We examined this 
-    association in a cohort of 12,000 diabetic patients followed for 10 years. 
-    Results: Metformin users showed a 23% reduced risk of CRC compared to non-users (HR 0.77, 
-    95% CI 0.65-0.91). The association was stronger in patients with longer duration of use.
-    Funding: Supported by NIH grant R01CA123456."""
-
-    result = extract_paper(title, abstract)
-    print(json.dumps(result, indent=2))
