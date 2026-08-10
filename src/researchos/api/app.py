@@ -133,11 +133,27 @@ if st.session_state.stage == "landing":
         if start and topic:
             st.session_state.topic = topic
             st.session_state.top_k = top_k
-            st.session_state.stage = "processing"
-            st.session_state.pipeline_done = False
+
+            from researchos.db import SessionLocal
+            from researchos.ingest.models import Paper
+            session = SessionLocal()
+            existing = session.query(Paper).filter(
+                Paper.extraction_done == True
+            ).count() 
+            session.close()
+
+            if existing > 0:
+                st.session_state.query = f"what does the research say about {topic}?"
+                st.session_state.results = []
+                st.session_state.stage = "results"
+            else:
+                st.session_state.pipeline_done = False
+                st.session_state.stage = "processing"
             st.rerun()
+            
         elif start and not topic:
             st.warning("Please enter a research topic first.")
+
 
     st.markdown("<br>", unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
