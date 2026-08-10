@@ -77,21 +77,12 @@ def save_papers(session, papers: list[dict]):
     return inserted, skipped
 
 def expand_queries(query: str) -> list[str]:
+    """Keep queries minimal to control API costs."""
     words = query.strip().split()
     queries = [query]
-
-    if len(words) >= 3:
-        queries.append(" ".join(words[:2]))
-        queries.append(" ".join(words[1:]))
-
     base = words[0] if words else query
-    queries.extend([
-        f"{base} clinical trial",
-        f"{base} meta-analysis",
-        f"{base} systematic review",
-        f"{base} cohort study",
-        f"{base} randomized controlled trial",
-    ])
+    queries.append(f"{base} meta-analysis")
+    queries.append(f"{base} clinical trial")
 
     seen = set()
     unique = []
@@ -99,7 +90,6 @@ def expand_queries(query: str) -> list[str]:
         if q not in seen:
             seen.add(q)
             unique.append(q)
-
     return unique
 
 
