@@ -40,11 +40,11 @@ def start_ingestion(request: TopicRequest):
         try:
             jobs[job_id]["step"] = "ingesting"
             from researchos.ingest.run_ingest import ingest
-            ingest(request.topic, limit=request.limit, scale=True)
+            ingest(request.topic, limit=20, scale=False)
 
             jobs[job_id]["step"] = "extracting"
             from researchos.extraction.run_extraction import run_extraction
-            run_extraction()
+            run_extraction(max_workers=2)
 
             jobs[job_id]["step"] = "crossref"
             from researchos.ingest.run_crossref import enrich_with_crossref
@@ -59,10 +59,9 @@ def start_ingestion(request: TopicRequest):
             embed_all_papers()
 
             jobs[job_id]["step"] = "graph"
-            from researchos.graph.build_graph import build_paper_nodes, build_citation_edges
+            from researchos.graph.build_graph import build_paper_nodes
             from researchos.graph.conflict_fingerprint import build_contradiction_edges
             build_paper_nodes()
-            build_citation_edges()
             build_contradiction_edges()
 
             jobs[job_id]["status"] = "done"

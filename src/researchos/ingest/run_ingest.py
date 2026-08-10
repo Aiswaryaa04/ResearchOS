@@ -99,7 +99,7 @@ def ingest(query: str, limit: int = 20, scale: bool = False):
     total_skipped = 0
 
     queries = expand_queries(query) if scale else [query]
-    per_query_limit = 100 if scale else limit
+    per_query_limit = 20 if scale else limit
 
     sources = [
         ("Semantic Scholar", s2_search, parse_s2_paper),
